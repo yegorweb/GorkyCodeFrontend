@@ -1,0 +1,1398 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode Backend API
+  version: 0.0.0
+  description: HTTP API backend для клиентского приложения.
+paths:
+  /health:
+    get:
+      tags: [Service]
+      summary: Liveness
+      operationId: health
+      responses:
+        '200':
+          description: Процесс работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      tags: [Service]
+      summary: Readiness
+      operationId: ready
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: PostgreSQL недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/task:
+    post:
+      tags: [Tasks]
+      summary: Обработать текстовую или голосовую команду
+      operationId: processTask
+      security:
+        - bearerAuth: []
+      description: |
+        Требуется Bearer-токен действующей сессии. user_id в JSON или
+        multipart/form-data должен совпадать с владельцем этой сессии.
+        При первом запросе клиент не передаёт task_id: backend создаёт UUID и
+        передаёт AI-service текст, время запроса, часовой пояс пользователя и
+        пустой context. Для ответа на уточнение клиент повторяет запрос с
+        полученным task_id; backend загружает context из Redis.
+        После успешной операции или поиска кандидатов backend вызывает
+        POST /api/respond с фактическим data, intent, status, текущим text и
+        timezone. AI формирует только message; данные и HTTP-статус сохраняются.
+        При сбое генерации используется резервное сообщение без повтора операции.
+        Уточнения и отмена создания встречи не требуют этого вызова.
+        Одновременные запросы с одним user_id и task_id не выполняются:
+        пока первый обрабатывается, второй получает 409. Клиент ждёт ответ
+        первого запроса и только затем отправляет следующую реплику.
+        Ровно один источник команды: text в application/json или WAV-файл в
+        multipart/form-data. Контекст, request_time и timezone клиент не
+        передаёт. Backend вызывает STT только для аудио, проверяет ответ AI
+        и выполняет разрешённое действие по intent. Ответ 201 подтверждает
+        создание только после сохранения записи. Для списка и поиска используется
+        ответ 200 с data.items. При ready/create_event агрегатор передаёт
+        проверенный action внутреннему сервису создания. Только после записи
+        в PostgreSQL возвращается 201 с полной созданной записью в data.event.
+        task_id обозначает диалог, data.event.id — отдельный ID записи.
+        Для задачи со сроком без точного времени data.event.time отсутствует;
+        такая запись участвует в поиске и списках по дате, но не совпадает с
+        фильтром по времени.
+        В успешных ответах X-Task-Intent содержит проверенный intent AI.
+        Для уточнения это намерение продолжающегося диалога. В ответах с
+        ошибкой заголовок X-Task-Intent отсутствует.
+        Для on_delete ready/find_candidates означает только поиск: backend
+        возвращает все найденные записи со стабильными номерами, даже если
+        кандидат один. Пустой список означает, что пользователь может
+        уточнить признаки с тем же task_id. Фронтенд отправляет выбранный
+        один или несколько номеров текстом в повторном запросе с тем же
+        task_id. После явного подтверждения AI возвращает action.task_ids —
+        ID строк PostgreSQL tasks. Backend проверяет каждый ID по сохранённым
+        кандидатам и владельцу сессии, затем удаляет все выбранные записи
+        одной транзакцией. Если запись исчезла или её содержимое изменилось
+        после показа кандидатов, выбор считается устаревшим. Не удаляется
+        ничего и возвращается 409. task_id обозначает ID диалога. Команда
+        «все» до показа кандидатов не считается подтверждением удаления.
+        on_update также сначала показывает кандидатов и предлагаемые changes.
+        После явного выбора номеров backend сверяет сохранённые снимки строк,
+        обновляет все выбранные записи одной транзакцией и возвращает их.
+        Повторная обработка того же task_id не гарантирует идемпотентность.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskTextRequest'
+            examples:
+              firstRequest:
+                summary: Первая команда
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  text: Назначь встречу с Иваном завтра
+              clarificationReply:
+                summary: Ответ на уточняющий вопрос
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                  text: 'В 15:00'
+              dateOnlyTask:
+                summary: Задача со сроком без точного времени
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  text: Поставь задачу купить билеты до конца недели
+              deleteSelection:
+                summary: Подтверждение двух кандидатов на удаление
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                  text: Удали №1 и №5
+              updateSelection:
+                summary: Подтверждение изменения записи №1
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                  text: Выбери №1
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskAudioRequest'
+            encoding:
+              file:
+                contentType: audio/wav, audio/x-wav
+      responses:
+        '200':
+          description: |
+            При status=needs_clarification возвращается TaskClarificationResponse;
+            X-Task-Intent показывает намерение диалога. При status=ok и
+            X-Task-Intent=list_events или search_events возвращается
+            TaskCollectionResponse. Отсутствие найденных записей — успешный
+            ответ с data.items: []. Для on_delete status=candidates возвращает
+            список для выбора, в том числе пустой; status=deleted подтверждает
+            фактическое удаление всех выбранных записей. Для on_update
+            status=update_candidates возвращает список и предлагаемые changes,
+            status=updated — обновлённые записи. После получения результата
+            backend запрашивает message через AI POST /api/respond.
+            При сбое генерации используется резервное сообщение.
+          headers:
+            X-Task-Intent:
+              description: Проверенный intent; при уточнении — намерение диалога.
+              required: true
+              schema:
+                type: string
+                enum: [create_event, list_events, search_events, on_delete, on_update]
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TaskClarificationResponse'
+                  - $ref: '#/components/schemas/TaskCollectionResponse'
+                  - $ref: '#/components/schemas/TaskCancelledResponse'
+                  - $ref: '#/components/schemas/TaskDeleteCandidatesResponse'
+                  - $ref: '#/components/schemas/TasksDeletedResponse'
+                  - $ref: '#/components/schemas/FrontendUpdateCandidates'
+                  - $ref: '#/components/schemas/FrontendUpdated'
+                discriminator:
+                  propertyName: status
+                  mapping:
+                    needs_clarification: '#/components/schemas/TaskClarificationResponse'
+                    ok: '#/components/schemas/TaskCollectionResponse'
+                    candidates: '#/components/schemas/TaskDeleteCandidatesResponse'
+                    deleted: '#/components/schemas/TasksDeletedResponse'
+                    update_candidates: '#/components/schemas/FrontendUpdateCandidates'
+                    updated: '#/components/schemas/FrontendUpdated'
+                    cancelled: '#/components/schemas/TaskCancelledResponse'
+              examples:
+                needsClarification:
+                  summary: Время встречи ещё не указано
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: needs_clarification
+                    message: В какое время?
+                deleteNeedsClarification:
+                  summary: Для удаления не хватает признаков; X-Task-Intent=on_delete
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: needs_clarification
+                    message: Какую запись нужно удалить?
+                listEvents:
+                  summary: Список событий на завтра
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ok
+                    message: Проверил события на завтра.
+                    data:
+                      items:
+                        - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-19'
+                          time: '15:00'
+                          created_at: '2026-10-18T12:00:20+03:00'
+                          status: active
+                listEventsEmpty:
+                  summary: На выбранный период записей нет
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: Проверил события на завтра.
+                    data:
+                      items: []
+                searchEvents:
+                  summary: Найдена завершённая встреча с Иваном
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7f37f1d2-61ef-47cb-a64c-91a87db0a455
+                    status: ok
+                    message: Поиск встреч с Иваном завершён.
+                    data:
+                      items:
+                        - id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-19'
+                          time: '15:00'
+                          created_at: '2026-10-18T12:00:20+03:00'
+                          status: completed
+                searchEventsEmpty:
+                  summary: Поиск ничего не нашёл
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                    status: ok
+                    message: Поиск встреч с Иваном завершён.
+                    data:
+                      items: []
+                listDateOnlyTask:
+                  summary: Задача со сроком без времени попала в выборку по дате
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: Показал задачи до конца недели.
+                    data:
+                      items:
+                        - id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: task
+                          title: Купить билеты
+                          date: '2026-11-01'
+                          created_at: '2026-10-26T12:01:00+03:00'
+                          status: active
+                updateCandidates:
+                  summary: Задача найдена; изменение ещё не записано
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                    status: update_candidates
+                    message: 'Поиск завершён. Найдено записей: 1. Какие изменить?'
+                    data:
+                      changes:
+                        status: completed
+                      candidates:
+                        - number: 1
+                          event:
+                            id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: task
+                            title: Купить билеты
+                            date: '2026-11-01'
+                            created_at: '2026-10-26T12:01:00+03:00'
+                            status: active
+                updatedEvents:
+                  summary: Пользователь выбрал №1; изменение записано
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                    status: updated
+                    message: Выбранные записи изменены.
+                    data:
+                      updated_events:
+                        - id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: task
+                          title: Купить билеты
+                          date: '2026-11-01'
+                          created_at: '2026-10-26T12:01:00+03:00'
+                          status: completed
+                deleteCandidates:
+                  summary: Найдены пять записей; пользователь выбирает одну или несколько
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: candidates
+                    message: Нашёл пять встреч. Какие удалить?
+                    data:
+                      candidates:
+                        - number: 1
+                          event:
+                            id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '11:00'
+                            created_at: '2026-10-22T12:00:00+03:00'
+                            status: active
+                        - number: 2
+                          event:
+                            id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '15:00'
+                            created_at: '2026-10-22T12:01:00+03:00'
+                            status: active
+                        - number: 3
+                          event:
+                            id: 6a59a6cb-6d5f-4f1e-b1d5-2e2c944acf55
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '16:00'
+                            created_at: '2026-10-22T12:02:00+03:00'
+                            status: active
+                        - number: 4
+                          event:
+                            id: 7b860b25-b89c-43b4-9b88-b0dcb8493a78
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '17:00'
+                            created_at: '2026-10-22T12:03:00+03:00'
+                            status: active
+                        - number: 5
+                          event:
+                            id: ee79bdbf-f5a8-4204-a821-4a4ab21d14f6
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '18:00'
+                            created_at: '2026-10-22T12:04:00+03:00'
+                            status: active
+                deleteCandidatesEmpty:
+                  summary: Совпадений нет; пользователь может уточнить запрос
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: candidates
+                    message: Подходящих записей не нашлось. Уточните запрос.
+                    data:
+                      candidates: []
+                deletedEvents:
+                  summary: Подтверждённые записи №1 и №5 удалены
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: deleted
+                    message: Две встречи с Иваном удалены.
+                    data:
+                      deleted_events:
+                        - id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-23'
+                          time: '11:00'
+                          created_at: '2026-10-22T12:00:00+03:00'
+                          status: active
+                        - id: ee79bdbf-f5a8-4204-a821-4a4ab21d14f6
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-23'
+                          time: '18:00'
+                          created_at: '2026-10-22T12:04:00+03:00'
+                          status: active
+                meetingConflict:
+                  summary: Новая встреча пересекается с существующей
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: needs_clarification
+                    message: В это время уже есть встреча «Встреча с Иваном», всё равно поставить?
+                meetingCancelled:
+                  summary: Пользователь отказался ставить пересекающуюся встречу
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: cancelled
+                    message: Хорошо, встречу не ставлю.
+        '201':
+          description: |
+            X-Task-Intent=create_event. Событие создано и сохранено;
+            JSON имеет схему TaskCreatedResponse, data.event содержит
+            фактическую запись PostgreSQL.
+          headers:
+            X-Task-Intent:
+              description: Подтверждённое намерение создать запись.
+              required: true
+              schema:
+                type: string
+                enum: [create_event]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCreatedResponse'
+              examples:
+                meeting:
+                  summary: Создана встреча
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ok
+                    message: Встреча с Иваном назначена на завтра в 15:00.
+                    data:
+                      event:
+                        id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-21'
+                        time: '15:00'
+                        created_at: '2026-10-20T12:00:00+03:00'
+                        status: active
+                task:
+                  summary: Создана задача с явно указанным временем
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: Задача купить молоко создана на завтра в 18:00.
+                    data:
+                      event:
+                        id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: task
+                        title: Купить молоко
+                        date: '2026-10-21'
+                        time: '18:00'
+                        created_at: '2026-10-20T12:01:00+03:00'
+                        status: active
+                taskWithoutTime:
+                  summary: Создана задача со сроком до конца недели без точного времени
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: Задача купить билеты создана со сроком до 1 ноября.
+                    data:
+                      event:
+                        id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: task
+                        title: Купить билеты
+                        date: '2026-11-01'
+                        created_at: '2026-10-26T12:01:00+03:00'
+                        status: active
+                reminder:
+                  summary: Создано напоминание
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7f37f1d2-61ef-47cb-a64c-91a87db0a455
+                    status: ok
+                    message: Напоминание позвонить маме установлено на 21 октября в 19:00
+                    data:
+                      event:
+                        id: 8db88c06-625b-4e86-9f49-050e021c48ad
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: reminder
+                        title: Позвонить маме
+                        date: '2026-10-21'
+                        time: '19:00'
+                        created_at: '2026-10-20T12:02:00+03:00'
+                        status: active
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/TaskInternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/auth/sign-up:
+    post:
+      tags: [Auth]
+      summary: Регистрация пользователя
+      description: Создаёт пользователя и возвращает access token. Email сравнивается без учёта регистра.
+      operationId: authSignUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+      responses:
+        '201':
+          description: Пользователь создан и авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/auth/sign-in:
+    post:
+      tags: [Auth]
+      summary: Вход по email и паролю
+      description: Возвращает одинаковую ошибку при неизвестном email и неверном пароле.
+      operationId: authSignIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Пользователь авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/auth/sign-out:
+    post:
+      tags: [Auth]
+      summary: Выход из аккаунта
+      description: >-
+        Завершает сессию, к которой привязан переданный access token. После
+        этого токен больше не принимается. Повторный вызов с тем же токеном
+        возвращает 401, так как сессии уже нет.
+      operationId: authSignOut
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Сессия завершена
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/integrations/google:
+    get:
+      tags: [Integrations]
+      summary: Статус подключения Google Calendar
+      description: Показывает, подключён ли Google Calendar у владельца Bearer-сессии.
+      operationId: googleStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Текущий статус интеграции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleStatusResponse'
+              examples:
+                connected:
+                  summary: Google Calendar подключён
+                  value:
+                    connected: true
+                    google_email: artem@gmail.com
+                    connected_at: '2026-10-22T19:00:00+03:00'
+                notConnected:
+                  summary: Google Calendar не подключён
+                  value:
+                    connected: false
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+    delete:
+      tags: [Integrations]
+      summary: Отключить Google Calendar
+      description: >-
+        Удаляет сохранённые OAuth-токены Google владельца Bearer-сессии.
+        Операция идемпотентна: если Google Calendar не подключён, тоже
+        возвращается 204.
+      operationId: googleDisconnect
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Google Calendar отключён или не был подключён
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+  /api/v1/integrations/google/connect:
+    post:
+      tags: [Integrations]
+      summary: Начать подключение Google Calendar
+      description: |
+        Создаёт одноразовый state, привязанный к владельцу Bearer-сессии, и
+        возвращает URL страницы согласия Google. Клиент открывает auth_url в
+        браузере; после согласия Google перенаправляет браузер на
+        /api/v1/integrations/google/callback.
+      operationId: googleConnect
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: URL страницы согласия Google
+          headers:
+            Cache-Control:
+              description: Ответ с одноразовым state не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleConnectResponse'
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+  /api/v1/integrations/google/callback:
+    get:
+      tags: [Integrations]
+      summary: OAuth callback Google
+      description: |
+        Сюда Google перенаправляет браузер после страницы согласия, поэтому
+        Bearer-токен не требуется: пользователь определяется по одноразовому
+        state из connect. Backend обменивает code на токены и сохраняет их.
+        Ответ всегда 302. Адрес перенаправления берётся только из конфигурации
+        backend (GOOGLE_FRONTEND_REDIRECT) и никогда из параметров запроса;
+        к нему добавляется google=connected при успехе или google=error при
+        отказе пользователя, неизвестном или истёкшем state, ошибке обмена
+        code либо выключенной интеграции.
+      operationId: googleCallback
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Код авторизации Google; отсутствует, если пользователь отказал.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: Одноразовый state, выданный в connect.
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          description: Ошибка от Google, например access_denied.
+          schema:
+            type: string
+            example: access_denied
+      responses:
+        '302':
+          description: Перенаправление браузера на фронтенд
+          headers:
+            Location:
+              description: |
+                GOOGLE_FRONTEND_REDIRECT с параметром google=connected или
+                google=error, например http://localhost:8088/?google=connected.
+              schema:
+                type: string
+                format: uri
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token, полученный из sign-up или sign-in.
+  schemas:
+    TaskTextRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, text]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Должен совпадать с владельцем Bearer-сессии.
+        task_id:
+          type: string
+          format: uuid
+          description: |
+            Передаётся при ответе на уточнение или выборе кандидата
+            on_delete/on_update.
+            Backend ищет context в Redis по паре user_id и task_id.
+        text:
+          type: string
+          minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
+    TaskAudioRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, file]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
+        task_id:
+          type: string
+          format: uuid
+          description: Необязательное текстовое поле для продолжения диалога, включая on_delete/on_update.
+        file:
+          type: string
+          format: binary
+          description: |
+            WAV-аудио (.wav или .wave). Максимальный размер задаётся
+            конфигурацией backend; другие аудиоформаты отклоняются.
+    TaskClarificationResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: Клиент возвращает этот ID в следующем запросе.
+        status:
+          type: string
+          enum: [needs_clarification]
+        message:
+          type: string
+          minLength: 1
+          description: Уточняющий вопрос от AI-service.
+    TaskDeleteCandidatesResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      description: |
+        Ответ on_delete после поиска. Список кандидатов формирует backend
+        только из записей владельца действующей сессии. Он возвращается
+        даже при одном кандидате; пустой массив означает, что нужен новый
+        текст с уточнёнными признаками и тем же task_id. Пользователь может
+        выбрать один, несколько или все показанные номера. Список с номерами
+        сохраняется в Redis до подтверждения.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID диалога для следующего запроса, не ID строки tasks.
+        status:
+          type: string
+          enum: [candidates]
+        message:
+          type: string
+          minLength: 1
+          description: Сообщение backend после фактического поиска.
+        data:
+          $ref: '#/components/schemas/TaskDeleteCandidatesData'
+    TaskDeleteCandidatesData:
+      type: object
+      additionalProperties: false
+      required: [candidates]
+      properties:
+        candidates:
+          type: array
+          description: Все найденные записи со стабильными номерами.
+          items:
+            $ref: '#/components/schemas/TaskDeleteCandidate'
+    TaskDeleteCandidate:
+      type: object
+      additionalProperties: false
+      required: [number, event]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: Номер для ответа пользователя, стабильный в этом диалоге.
+        event:
+          $ref: '#/components/schemas/TaskItem'
+    TasksDeletedResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      description: |
+        Ответ on_delete только после удаления всех выбранных строк пользователя
+        в PostgreSQL одной транзакцией. Backend проверяет каждый ID из
+        action.task_ids по сохранённому списку кандидатов и владельцу сессии;
+        при устаревшем выборе возвращает 409 без частичного удаления.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID диалога, не ID удалённой строки tasks.
+        status:
+          type: string
+          enum: [deleted]
+        message:
+          type: string
+          minLength: 1
+          description: Сообщение backend об успешно удалённых записях.
+        data:
+          $ref: '#/components/schemas/TasksDeletedData'
+    TasksDeletedData:
+      type: object
+      additionalProperties: false
+      required: [deleted_events]
+      properties:
+        deleted_events:
+          type: array
+          minItems: 1
+          description: Все удалённые строки tasks, в порядке подтверждённых ID.
+          items:
+            $ref: '#/components/schemas/TaskItem'
+    TaskCreatedResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID обработки диалога; не является ID созданной записи.
+        status:
+          type: string
+          enum: [ok]
+        message:
+          type: string
+          minLength: 1
+          description: Сообщение POST /api/respond по сохранённой записи, либо резервный текст при сбое генерации.
+        data:
+          $ref: '#/components/schemas/TaskCreatedData'
+    TaskCancelledResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      description: |
+        Ответ на вопрос о конфликте встреч, если пользователь отказался.
+        Когда новая встреча пересекается с активной встречей пользователя
+        или с занятым временем в подключённом Google Calendar, backend не
+        создаёт её сразу, а возвращает 200 TaskClarificationResponse с
+        вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
+        создаёт встречу (201), «нет» возвращает этот ответ, другой текст
+        повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [cancelled]
+        message:
+          type: string
+          minLength: 1
+    TaskCreatedData:
+      type: object
+      additionalProperties: false
+      required: [event]
+      properties:
+        event:
+          $ref: '#/components/schemas/TaskCreatedEvent'
+    TaskCreatedEvent:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, record_type, title, date, created_at, status]
+      description: |
+        Полная созданная запись. record_type совпадает со значением колонки
+        tasks.type в PostgreSQL. Для новых записей date обязательна. time
+        обязательно для meeting/reminder и может отсутствовать у task.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        record_type:
+          type: string
+          enum: [task, reminder, meeting]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Отсутствует или null, если задача не привязана к точному времени.
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active]
+    TaskCollectionResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      description: |
+        Ответ фронтенду после выполнения list_events или search_events.
+        Агрегатор добавляет user_id, task_id и status к результату внутреннего
+        сервиса в data. message формирует POST /api/respond, при сбое — резервный текст.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID обработки запроса; новую запись tasks не обозначает.
+        status:
+          type: string
+          enum: [ok]
+        message:
+          type: string
+          minLength: 1
+          description: |
+            Сообщение POST /api/respond по data.items, либо резервный текст
+            при сбое генерации. Список записей определяется только по data.items.
+        data:
+          $ref: '#/components/schemas/TaskCollection'
+    TaskCollection:
+      type: object
+      additionalProperties: false
+      required: [items]
+      description: |
+        Результат, который внутренние Go-сервисы list_events и search_events
+        возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
+        user_id текущего запроса. Сервисы возвращают только items;
+        агрегатор формирует обёртку ответа фронтенду и передаёт message от
+        POST /api/respond; при ошибке генерации используется резервное сообщение.
+        Если записей нет, items — пустой массив. Оба сервиса учитывают
+        записи со статусами active и completed. Задача без точного времени
+        участвует в выборке по дате; отсутствие времени не заменяется
+        фиктивным часом.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskItem'
+      example:
+        items:
+          - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+            record_type: meeting
+            title: Встреча с Иваном
+            date: '2026-10-19'
+            time: '15:00'
+            created_at: '2026-10-18T12:00:20+03:00'
+            status: active
+    TaskItem:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, record_type, title, created_at, status]
+      description: |
+        Представление записи tasks для клиента. Значения record_type на API
+        совпадают с AI-контрактом и со значениями колонки tasks.type
+        в PostgreSQL (meeting, task, reminder).
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        record_type:
+          type: string
+          enum: [task, reminder, meeting]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: Отсутствует или null, если дата не задана.
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Локальное время HH:MM; отсутствует или null, если не задано.
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, completed]
+    UUID:
+      type: string
+      format: uuid
+    RecordType:
+      type: string
+      enum: [task, reminder, meeting]
+    TaskStatus:
+      type: string
+      enum: [active, completed]
+    Date:
+      type: string
+      format: date
+    LocalTime:
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+    UpdateChanges:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+        значение; null запрещён. Одного changes.time достаточно для переноса
+        времени существующей встречи: её дата сохраняется. Одного changes.date
+        достаточно для переноса даты: время сохраняется. Не нужно запрашивать
+        неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
+        неизменяемы. Если time задано для записи без date, changes обязано
+        задать date. Дату без времени и время без даты можно сохранять только
+        если итоговая строка удовлетворяет ограничению БД.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: После trim строка должна быть непустой.
+        date: {$ref: '#/components/schemas/Date'}
+        time: {$ref: '#/components/schemas/LocalTime'}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    FrontendUpdateCandidates:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      description: |
+        Результат on_update/find_candidates. Backend сохраняет показанные
+        номера, снимки записей и changes в Redis. Даже при нуле или одном
+        совпадении возвращаются candidates и changes; изменений в БД пока нет.
+        Для подтверждения клиент передаёт выбранные номера текстом с тем же
+        task_id. message запрашивается через POST /api/respond; при сбое используется резервный текст.
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [update_candidates]}
+        message: {type: string, minLength: 1}
+        data:
+          type: object
+          additionalProperties: false
+          required: [candidates, changes]
+          properties:
+            candidates:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [number, event]
+                properties:
+                  number: {type: integer, minimum: 1}
+                  event: {$ref: '#/components/schemas/TaskItem'}
+            changes: {$ref: '#/components/schemas/UpdateChanges'}
+    FrontendUpdated:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      description: |
+        Результат on_update/update_confirmed после проверки выбранных ID и
+        снимков, затем атомарной записи в PostgreSQL. Устаревший выбор даёт
+        HTTP 409 без частичного изменения. message запрашивается через
+        POST /api/respond после записи; при сбое используется резервный текст.
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [updated]}
+        message: {type: string, minLength: 1}
+        data:
+          type: object
+          additionalProperties: false
+          required: [updated_events]
+          properties:
+            updated_events:
+              type: array
+              minItems: 1
+              description: Полные записи после commit, в порядке выбранных ID.
+              items: {$ref: '#/components/schemas/TaskItem'}
+    SignUpRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, timezone]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Отображаемое имя пользователя; строка из одних пробелов недопустима.
+          example: Артём
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Уникальный email; при регистрации пробелы по краям удаляются, регистр не учитывается.
+          example: artem@example.com
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 15
+          maxLength: 128
+          description: Пароль передаётся только по HTTPS и никогда не возвращается в ответе.
+        timezone:
+          type: string
+          description: Часовой пояс IANA для интерпретации относительных дат и времени.
+          example: Europe/Moscow
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          example: artem@example.com
+        password:
+          type: string
+          format: password
+          writeOnly: true
+    AuthResponse:
+      type: object
+      additionalProperties: false
+      required: [user, access_token, token_type, expires_in]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        access_token:
+          type: string
+          minLength: 1
+          description: Токен для заголовка Authorization.
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Срок действия access token в секундах.
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, timezone, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        timezone:
+          type: string
+          example: Europe/Moscow
+        created_at:
+          type: string
+          format: date-time
+    GoogleConnectResponse:
+      type: object
+      additionalProperties: false
+      required: [auth_url]
+      properties:
+        auth_url:
+          type: string
+          format: uri
+          description: URL страницы согласия Google, которую клиент открывает в браузере.
+          example: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=...
+    GoogleStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+          description: true, если у пользователя сохранены токены Google.
+        google_email:
+          type: string
+          format: email
+          description: Email Google-аккаунта; есть только при connected = true, если Google его вернул.
+          example: artem@gmail.com
+        connected_at:
+          type: string
+          format: date-time
+          description: Когда Google Calendar был подключён; есть только при connected = true.
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [service, status]
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+          enum: [ok, unavailable]
+    Problem:
+      type: object
+      description: Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+      required:
+        - type
+        - title
+        - status
+        - code
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+  responses:
+    TaskInternalError:
+      description: |
+        Сбой проверки сессии или обработки задачи, включая некорректные данные
+        AI и сбой PostgreSQL. Причина логируется. При ошибке обработки задачи
+        клиент получает нейтральное сообщение в detail.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/internal-error
+            title: Internal server error
+            status: 500
+            code: internal_error
+            detail: Извините, возникли внутренние проблемы.
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: WAV-файл превышает настроенный лимит размера
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadGateway:
+      description: Ошибка STT или AI-service, включая некорректный JSON AI
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GatewayTimeout:
+      description: Таймаут STT или AI-service
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Неверный email или пароль; code = invalid_credentials.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/invalid-credentials
+            title: Invalid credentials
+            status: 401
+            code: invalid_credentials
+    SessionRequired:
+      description: Нет access token или сессия истекла либо завершена; code = unauthorized.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/unauthorized
+            title: Unauthorized
+            status: 401
+            code: unauthorized
+    Forbidden:
+      description: user_id в запросе не совпадает с владельцем Bearer-сессии; code = forbidden.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/forbidden
+            title: Forbidden
+            status: 403
+            code: forbidden
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Конфликт запроса — устаревший выбор, занятый диалог или уже существующий пользователь.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unavailable:
+      description: Сервис временно недоступен
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GoogleDisabled:
+      description: >-
+        Интеграция с Google Calendar выключена: не заданы GOOGLE_CLIENT_ID и
+        GOOGLE_CLIENT_SECRET; code = google_disabled.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/google-disabled
+            title: Service Unavailable
+            status: 503
+            code: google_disabled
+    TooManyRequests:
+      description: Превышен лимит запросов; code = rate_limited.
+      headers:
+        Retry-After:
+          description: Через сколько секунд можно повторить запрос.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
