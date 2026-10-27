@@ -21,7 +21,9 @@
     "@nuxtjs/sitemap": "^9.1.0",
     "baseline-browser-mapping": "^2.11.29",
     "nuxt-svgo": "^5.3.0",
+    "openapi-typescript": "^7.13.0",
     "sass": "^1.105.2",
+    "typescript": "^5.9.3",
     "vuetify-nuxt-module": "^1.0.0-rc.6"
   }
 }
