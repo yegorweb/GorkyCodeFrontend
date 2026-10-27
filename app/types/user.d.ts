@@ -1,11 +1,7 @@
+import type { components } from "./backend"
+
 declare global {
-  interface User {
-    _id: string
-    fullname: string
-    email: string
-    password: string
-    roles: string[]
-  }
+  type User = components['schemas']['User']
 }
 
 export { User }
