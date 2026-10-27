@@ -8,9 +8,10 @@ export default defineVuetifyConfiguration({
     messages: { ru }
   },
   theme: {
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
     themes: {
-      light: {
+      dark: {
+        dark: true,
         colors: {
           primary: '#27384b',
           accent: '#e76f51'
