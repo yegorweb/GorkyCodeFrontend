@@ -1,4 +1,4 @@
-import type { components } from "./backend"
+import type { components } from './backend'
 
 declare global {
   type User = components['schemas']['User']

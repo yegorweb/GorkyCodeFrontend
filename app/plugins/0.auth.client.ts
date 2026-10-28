@@ -1,141 +1,53 @@
-export default defineNuxtPlugin(async (nuxtApp) => {
-	// Skip plugin when rendering error page
-	if (nuxtApp.payload.error) {
-		return {}
-	}
+const AUTH_STORAGE_KEY = 'gorkycode.auth'
 
-  const config = useRuntimeConfig()
+interface StoredAuth {
+  user: User
+  accessToken: string
+}
 
-	const user = useState<User | null | undefined>('user')
-	const loggedIn = computed<boolean>(() => user.value ? Object.keys(user.value).length > 0 : false)
-	const accessToken = useState<string | null | undefined>('accessToken')
-	const refreshed = useState<true | undefined>('refreshed')
+function isStoredAuth(value: unknown): value is StoredAuth {
+  if (!value || typeof value !== 'object') return false
 
-	async function refresh(): Promise<StoreResponse<null>> {
-		try {
-			let data = await $fetch<{ user: User, accessToken: string }>('/auth/refresh', { 
-				baseURL: config.public.apiBase, 
-				method: 'POST', 
-				credentials: 'include',
-			})
-			user.value = data.user
-			accessToken.value = data.accessToken		
-      return { ok: true, data: null }
-  	} catch (err) {
-			if (err instanceof FetchError && err.status === 401) clearNuxtState(['user', 'accessToken'])
-      return { ok: false }
-		}
-	}
-	
-	if (!refreshed.value) {
-		await refresh()
-		refreshed.value = true
-	}
+  const stored = value as Partial<StoredAuth>
+  const user = stored.user
+  return typeof stored.accessToken === 'string'
+    && stored.accessToken.length > 0
+    && !!user
+    && typeof user.id === 'string'
+    && typeof user.name === 'string'
+    && typeof user.email === 'string'
+    && typeof user.timezone === 'string'
+    && typeof user.created_at === 'string'
+}
 
-	/**
-		* Add global route middleware to protect pages using:
-		* 
-		* definePageMeta({
-		*  auth: true
-		* })
-		*/
-	// 
-
-	addRouteMiddleware(
-		'auth',
-		(to) => {
-			if (to.meta.auth && !loggedIn.value) {
-				return navigateTo({ path: '/auth/login', query: { redirect: encodeURIComponent(to.path) } })
-			}
-		},
-		{ global: true }
-	)
-
-	async function login(email: string, password: string): Promise<StoreResponse<null>> {
-		try {
-			let data = await $fetch<{ user: User, accessToken: string }>('/auth/login', { 
-				baseURL: config.public.apiBase, 
-				credentials: 'include',
-				method: 'POST',
-				body: { email, password },
-			})
-			user.value = data.user
-			accessToken.value = data.accessToken		
-      return { ok: true, data: null }
-  	} catch (err) {
-      return handleApiError(err as FetchError)
+export default defineNuxtPlugin(() => {
+  let storedAuth: StoredAuth | null = null
+  const serializedAuth = localStorage.getItem(AUTH_STORAGE_KEY)
+  if (serializedAuth) {
+    try {
+      const parsedAuth: unknown = JSON.parse(serializedAuth)
+      if (isStoredAuth(parsedAuth)) storedAuth = parsedAuth
+      else localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
     }
-	}
+  }
 
-	async function registerUser(form: object): Promise<StoreResponse<null>> {
-		try {
-			await $fetch('/auth/register-user', { 
-				baseURL: config.public.apiBase, 
-				credentials: 'include',
-				method: 'POST',
-				body: form,
-			})
-      return { ok: true, data: null }
-  	} catch (err) {
-      return handleApiError(err as FetchError)
-    }
-	}
+  const user = useState<User | null>('user', () => storedAuth?.user ?? null)
+  const accessToken = useState<string | null>('accessToken', () => storedAuth?.accessToken ?? null)
+  const loggedIn = computed(() => !!user.value && !!accessToken.value)
 
-	async function logout(): Promise<StoreResponse<null>> {
-		try {
-			await $fetch('/auth/logout', { 
-				baseURL: config.public.apiBase, 
-				credentials: 'include',
-				method: 'POST',
-			})
-			await navigateTo('/')
-			clearNuxtState(['user', 'accessToken', 'refreshed'])
-      return { ok: true, data: null }
-  	} catch (err) {
-      return handleApiError(err as FetchError)
-    }
-	}
-
-	async function sendResetLink(email: string): Promise<StoreResponse<null>> {
-		try {		
-			await $fetch('/auth/send-reset-password-link', { 
-				baseURL: config.public.apiBase, 
-				method: 'POST',
-				body: { email },
-			})
-      return { ok: true, data: null }
-  	} catch (err) {
-      return handleApiError(err as FetchError)
-    }
-	}
-
-	async function resetPassword(password: string, token: string, user_id: string): Promise<StoreResponse<null>> {
-		try {
-			await $fetch('/auth/reset-password', { 
-				baseURL: config.public.apiBase, 
-				method: 'POST',
-				body: {
-					password,
-					token,
-					user_id,
-				},
-			})
-      return { ok: true, data: null }
-  	} catch (err) {
-      return handleApiError(err as FetchError)
-    }
-	}
-
-	return {
-		provide: {
-			auth: {
-				refresh,
-				login,
-				registerUser,
-				logout,
-				sendResetLink,
-				resetPassword,
-			},
-		},
-	}
+  addRouteMiddleware(
+    'auth',
+    to => {
+      if (to.meta.auth && !loggedIn.value) {
+        const googleResult = to.query.google
+        if (googleResult === 'connected' || googleResult === 'error') {
+          return navigateTo({ path: '/auth', query: { google: googleResult } })
+        }
+        return navigateTo({ path: '/auth', query: { redirect: to.fullPath } })
+      }
+    },
+    { global: true },
+  )
 })

@@ -1,13 +1,15 @@
 export const useUser = () => {
-  const { $apiFetchSafe } = useNuxtApp()
+  const auth = useAuth()
 
-  async function getMyName() {
-    return await $apiFetchSafe<string>('/user/my-name', { 
-      method: 'GET',
-    })
+  function getCurrentUser(): StoreResponse<User> {
+    if (!auth.user.value) {
+      return { ok: false, status: 401 }
+    }
+
+    return { ok: true, data: auth.user.value }
   }
 
   return {
-    getMyName,
+    getCurrentUser,
   }
 }

@@ -1,40 +1,27 @@
-import { appendResponseHeader } from 'h3'
-import type { H3Event } from 'h3'
 import type { NitroFetchOptions, NitroFetchRequest } from 'nitropack'
 
-export default defineNuxtPlugin(nuxtApp => {
-	// Skip plugin when rendering error page
-	if (nuxtApp.payload.error) {
-		return {}
-	}
-
+export default defineNuxtPlugin(() => {
   const auth = useAuth()
   const config = useRuntimeConfig()
-
-  const redirectToLogin = () => navigateTo({ path: '/auth/login', query: { redirect: encodeURIComponent(useRoute().path) } })
+  const route = useRoute()
 
   const apiFetch = $fetch.create({
     baseURL: config.public.apiBase,
-    credentials: 'include',
     retry: 1,
-    retryStatusCodes: [408, 409, 425, 500, 502, 503, 504, 401],
-
+    retryStatusCodes: [408, 409, 425, 500, 502, 503, 504],
     onRequest({ options }) {
       if (auth.accessToken.value) {
-        if (!(options.headers instanceof Headers)) {
-          options.headers = new Headers(options.headers)
-        }
-        options.headers.set('Authorization', `Bearer ${auth.accessToken.value}`)
+        const headers = new Headers(options.headers)
+        headers.set('Authorization', `Bearer ${auth.accessToken.value}`)
+        options.headers = headers
       }
     },
     async onResponseError({ response }) {
-      if (response.status === 401 && response._data?.tokenNeedRefresh) {
-        await auth.refresh()
-        if (!auth.accessToken.value) {
-          await redirectToLogin()
+      if (response.status === 401 && auth.loggedIn.value) {
+        auth.clearAuth()
+        if (route.path !== '/auth') {
+          await navigateTo({ path: '/auth', query: { redirect: route.fullPath } })
         }
-      } else if (response.status === 401) {
-        await redirectToLogin()
       }
     },
   })
@@ -47,13 +34,13 @@ export default defineNuxtPlugin(nuxtApp => {
     O extends NitroFetchOptions<R> = NitroFetchOptions<R>
   >(
     url: R,
-    options?: O
+    options?: O,
   ): Promise<StoreResponse<T>> => {
-    try {  
-      const data = await $fetch<T>(url, options)
-      return { ok: true, data } as StoreResponse<T>
-    } catch (err) {
-      return handleApiError(err as FetchError)
+    try {
+      const data = await $fetch<T>(url, options) as T
+      return { ok: true, data }
+    } catch (error) {
+      return handleApiError(error)
     }
   }
 
@@ -65,87 +52,13 @@ export default defineNuxtPlugin(nuxtApp => {
     O extends NitroFetchOptions<R> = NitroFetchOptions<R>
   >(
     url: R,
-    options?: O
+    options?: O,
   ): Promise<StoreResponse<T>> => {
-    try {  
-      const data = await apiFetch<T>(url, options)
-      return { ok: true, data } as StoreResponse<T>
-    } catch (err) {
-      return handleApiError(err as FetchError)
-    }
-  }
-
-  const fetchSafeWithCookies = async <
-    DefaultT = unknown,
-    DefaultR extends NitroFetchRequest = NitroFetchRequest,
-    T = DefaultT,
-    R extends NitroFetchRequest = DefaultR,
-    O extends NitroFetchOptions<R> = NitroFetchOptions<R>
-  >(
-    event: H3Event | undefined,
-    url: R,
-    options?: O
-  ): Promise<StoreResponse<T>> => {
-    const headers = useRequestHeaders(['cookie'])
     try {
-      const res = await $fetch.raw<T>(url, { 
-        ...options,
-        headers: {...options?.headers, ...headers},
-        credentials: 'include',
-        ignoreResponseError: true, 
-      })
-      if (event) {
-        const cookies = res.headers.getSetCookie()
-        for (const cookie of cookies) {
-          appendResponseHeader(event, 'set-cookie', cookie)
-        }
-      }
-      return res.status < 400 ? 
-        { ok: true, data: res._data as any } :
-        {
-          ok: false,
-          status: res.status,
-          message: (res._data as any)?.message,
-        }
-    } catch {
-      return { ok: false } 
-    }
-  }
-
-  const apiFetchSafeWithCookies = async <
-    DefaultT = unknown,
-    DefaultR extends NitroFetchRequest = NitroFetchRequest,
-    T = DefaultT,
-    R extends NitroFetchRequest = DefaultR,
-    O extends NitroFetchOptions<R> = NitroFetchOptions<R>
-  >(
-    event: H3Event | undefined,
-    url: R,
-    options?: O
-  ): Promise<StoreResponse<T>> => {
-    const headers = useRequestHeaders(['cookie'])
-    try {
-      const res = await apiFetch.raw<T>(url, { 
-        ...options,
-        headers: {...options?.headers, ...headers},
-        credentials: 'include',
-        ignoreResponseError: true, 
-      })
-      if (event) {
-        const cookies = res.headers.getSetCookie()
-        for (const cookie of cookies) {
-          appendResponseHeader(event, 'set-cookie', cookie)
-        }
-      }
-      return res.status < 400 ? 
-        { ok: true, data: res._data as T } :
-        {
-          ok: false,
-          status: res.status,
-          message: (res._data as any)?.message,
-        }
-    } catch {
-      return { ok: false } 
+      const data = await apiFetch<T>(url, options) as T
+      return { ok: true, data }
+    } catch (error) {
+      return handleApiError(error)
     }
   }
 
@@ -154,8 +67,6 @@ export default defineNuxtPlugin(nuxtApp => {
       apiFetch,
       fetchSafe,
       apiFetchSafe,
-      fetchSafeWithCookies,
-      apiFetchSafeWithCookies,
-    }
+    },
   }
 })
