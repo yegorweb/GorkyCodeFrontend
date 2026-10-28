@@ -45,6 +45,8 @@ const { data, refresh } = await useApiFetch('/api/v1/integrations/google')
 
 Высокоуровневые функции, обращающиеся к API, должны возвращать `StoreResponse<T>` и обрабатывать исключения. Используй stores `useAuth`, `useGoogleCalendar`, `useTask` и `useHealth`; не вызывай их endpoints напрямую из страниц.
 
+Чатовый ввод размещай в `PromptPanel`. Текст и голос отправляй через `useTask`; store сам продолжает диалог с `task_id` при уточнении и сбрасывает его после `status: ok`. Голосовой endpoint принимает WAV — не отправляй формат, созданный `MediaRecorder`, без преобразования.
+
 ## Иконки
 Иконки для компонентов импортируй из `@mdi/js`, не указывай имена иконок строками.
 
