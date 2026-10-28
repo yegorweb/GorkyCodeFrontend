@@ -112,7 +112,7 @@ async function submitRegister(request: SignUpRequest) {
 
         <v-window-item value="calendar">
           <div data-auth-step="calendar">
-            <GoogleCalendarConnect :callback-result="googleCallbackResult" />
+            <GoogleCalendarConnect :callback-result="googleCallbackResult as string | undefined" />
           </div>
         </v-window-item>
       </v-window>
