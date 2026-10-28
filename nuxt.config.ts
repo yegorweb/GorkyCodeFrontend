@@ -4,7 +4,7 @@ export default defineNuxtConfig({
 
   site: {
     indexable: false,
-  }
+  },
 
   devtools: { enabled: true },
   modules: ['@nuxtjs/robots', '@nuxtjs/sitemap', 'vuetify-nuxt-module', 'nuxt-svgo'],
