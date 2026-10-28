@@ -55,6 +55,14 @@ export default defineNuxtConfig({
     },
   },
 
+  googleFonts: {
+    families: {
+      Xmind: [400, 500, 700]
+    },
+    download: true,
+    preload: true,
+  },
+
   svgo: {
     defaultImport: 'skipsvgo',
   },
