@@ -13,8 +13,13 @@ export default defineVuetifyConfiguration({
       dark: {
         dark: true,
         colors: {
-          primary: '#27384b',
-          accent: '#e76f51'
+          background: '#10110B',
+          surface: '#13150E',
+          primary: '#009917',
+          secondary: '#4a7fe6',
+          'on-background': '#ffffff',
+          'on-surface': '#ffffff',
+          'on-surface-variant': '#ffffff',
         },
       }
     }
