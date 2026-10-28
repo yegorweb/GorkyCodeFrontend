@@ -52,8 +52,8 @@ if (googleResult === 'connected' || googleResult === 'error') {
   left: 0;
   right: 0;
   z-index: 999;
-  background-color: rgba(var(--v-theme-surface), 0.8);
-  box-shadow: 0 4px 20px rgba(var(--v-theme-surface), 0.8);
+  background-color: rgba(var(--v-theme-background), 0.8);
+  box-shadow: 0 4px 20px rgba(var(--v-theme-background), 0.8);
   backdrop-filter: blur(12px);
 }
 
