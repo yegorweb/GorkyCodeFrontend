@@ -7,7 +7,13 @@ export default defineNuxtConfig({
   },
 
   devtools: { enabled: true },
-  modules: ['@nuxtjs/robots', '@nuxtjs/sitemap', 'vuetify-nuxt-module', 'nuxt-svgo'],
+  modules: [
+    '@nuxtjs/robots',
+    '@nuxtjs/sitemap',
+    'vuetify-nuxt-module',
+    'nuxt-svgo',
+    '@nuxtjs/google-fonts'
+  ],
 
   css: ['~/assets/styles/main.scss'],
 
