@@ -5,6 +5,15 @@
 html {
   overflow-y: scroll !important;
   overflow-x: hidden;
+  scrollbar-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, white) rgb(var(--v-theme-background));
+}
+
+html::-webkit-scrollbar-track {
+  background-color: rgb(var(--v-theme-background));
+}
+
+html::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, white);
 }
 
 .user-select-none {
