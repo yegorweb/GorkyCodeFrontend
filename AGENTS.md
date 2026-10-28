@@ -45,6 +45,13 @@ const { data, refresh } = await useApiFetch('/api/v1/integrations/google')
 
 Высокоуровневые функции, обращающиеся к API, должны возвращать `StoreResponse<T>` и обрабатывать исключения. Используй stores `useAuth`, `useGoogleCalendar`, `useTask` и `useHealth`; не вызывай их endpoints напрямую из страниц.
 
+## Иконки
+Иконки для компонентов импортируй из `@mdi/js`, не указывай имена иконок строками.
+
+## Toast-уведомления
+
+Для toast-уведомлений используй store `useToast()` с методами `success(message)` и `error(message)`. Не подключай toast к операциям или страницам, пока это отдельно не запрошено.
+
 ## Типы
 
 Описывай backend-сущности на основе схем `components` в `app/types/backend.d.ts`, используя паттерн `app/types/user.d.ts` и отдельные декларации в `app/types/`.
