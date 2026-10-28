@@ -1,6 +1,11 @@
 <script setup lang="ts">
+useHead({
+  titleTemplate: title => title
+    ? `${title} | GorkyCode`
+    : 'GorkyCode | Голосовой и текстовый ассистент',
+})
+
 useSeoMeta({
-  titleTemplate: '%s | GorkyCode',
   description: 'Голосовой и текстовый AI-ассистент для создания событий в календаре. Тестовый проект хакатона GorkyCode.',
   robots: 'noindex, nofollow',
   ogType: 'website',
