@@ -7,10 +7,22 @@ definePageMeta({
 
 const auth = useAuth({ required: true })
 const route = useRoute()
-const googleResult = route.query.google
+const googleCalendar = useGoogleCalendar()
+const toast = useToast()
+const showCalendarDialog = ref(false)
 
-if (googleResult === 'connected' || googleResult === 'error') {
-  await navigateTo({ path: '/auth', query: { google: googleResult } }, { replace: true })
+const queryValue = route.query.google
+const googleResult = Array.isArray(queryValue) ? queryValue[0] : queryValue
+const calendarStatus = await googleCalendar.getStatus()
+
+if (!calendarStatus.ok) {
+  toast.error(generateErrorMessage(calendarStatus))
+} else {
+  if (googleResult === 'connected' && calendarStatus.data.connected) {
+    toast.success('Google Calendar подключён')
+  }
+
+  // showCalendarDialog.value = googleResult === 'error' || !calendarStatus.data.connected
 }
 </script>
 
@@ -43,6 +55,28 @@ if (googleResult === 'connected' || googleResult === 'error') {
   <v-container>
 
   </v-container>
+
+  <v-dialog
+    v-model="showCalendarDialog"
+    persistent
+    max-width="360"
+  >
+    <v-card class="w-100 rounded-lg bg-surface">
+      <v-card-title class="text-center pt-6">
+        Google Calendar
+      </v-card-title>
+      <GoogleCalendarConnect :callback-result="route.query.google?.toString()" />
+      <v-card-actions class="justify-center pb-5">
+        <v-btn
+          :prepend-icon="mdiLogout"
+          variant="text"
+          @click="auth.logout"
+        >
+          Выйти
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style lang="postcss" scoped>
