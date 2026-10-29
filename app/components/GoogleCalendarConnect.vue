@@ -2,6 +2,9 @@
 const props = defineProps<{
   callbackResult?: string
 }>()
+const emit = defineEmits<{
+  skip: []
+}>()
 
 const googleCalendar = useGoogleCalendar()
 const error = ref<Extract<StoreResponse<unknown>, { ok: false }> | undefined>()
@@ -37,8 +40,13 @@ async function connect() {
     </div>
 
     <ErrorMessage v-if="error" :model-value="error" class="mb-3 text-center" />
-    <v-btn color="primary" :loading="loading" @click="connect">
-      Подключить Google Calendar
-    </v-btn>
+    <div class="d-flex flex-column align-center ga-2">
+      <v-btn color="primary" :loading="loading" @click="connect">
+        Подключить Google Calendar
+      </v-btn>
+      <v-btn variant="text" :disabled="loading" @click="emit('skip')">
+        Давайте потом
+      </v-btn>
+    </div>
   </v-card-text>
 </template>

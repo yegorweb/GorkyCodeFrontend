@@ -72,6 +72,11 @@ async function submitRegister(request: SignUpRequest) {
 
   await checkCalendarAfterAuth()
 }
+
+async function skipCalendar() {
+  sessionStorage.setItem('gorkycode.google-calendar-deferred', 'true')
+  await navigateTo('/', { replace: true })
+}
 </script>
 
 <template>
@@ -112,7 +117,10 @@ async function submitRegister(request: SignUpRequest) {
 
         <v-window-item value="calendar">
           <div data-auth-step="calendar">
-            <GoogleCalendarConnect :callback-result="googleCallbackResult as string | undefined" />
+            <GoogleCalendarConnect
+              :callback-result="googleCallbackResult as string | undefined"
+              @skip="skipCalendar"
+            />
           </div>
         </v-window-item>
       </v-window>

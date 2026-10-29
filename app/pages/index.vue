@@ -28,6 +28,7 @@ let nextMessageId = 0
 
 const queryValue = route.query.google
 const googleResult = Array.isArray(queryValue) ? queryValue[0] : queryValue
+const calendarDeferredKey = 'gorkycode.google-calendar-deferred'
 const calendarStatus = await googleCalendar.getStatus()
 
 if (!calendarStatus.ok) {
@@ -37,7 +38,13 @@ if (!calendarStatus.ok) {
     toast.success('Google Calendar подключён')
   }
 
-  showCalendarDialog.value = googleResult === 'error' || !calendarStatus.data.connected
+  if (calendarStatus.data.connected) {
+    sessionStorage.removeItem(calendarDeferredKey)
+  }
+
+  const calendarDeferred = sessionStorage.getItem(calendarDeferredKey) === 'true'
+  showCalendarDialog.value = googleResult === 'error'
+    || (!calendarDeferred && !calendarStatus.data.connected)
 }
 
 async function scrollToLatestMessage() {
@@ -92,6 +99,11 @@ async function submitPrompt(submission: PromptSubmission) {
 
   busy.value = false
   await scrollToLatestMessage()
+}
+
+function closeCalendarDialog() {
+  sessionStorage.setItem(calendarDeferredKey, 'true')
+  showCalendarDialog.value = false
 }
 </script>
 
@@ -170,23 +182,16 @@ async function submitPrompt(submission: PromptSubmission) {
   
     <v-dialog
       v-model="showCalendarDialog"
-      persistent
       max-width="360"
     >
       <v-card class="w-100 rounded-lg bg-surface">
         <v-card-title class="text-center pt-6">
           Google Calendar
         </v-card-title>
-        <GoogleCalendarConnect :callback-result="route.query.google?.toString()" />
-        <v-card-actions class="justify-center pb-5">
-          <v-btn
-            :prepend-icon="mdiLogout"
-            variant="text"
-            @click="auth.logout"
-          >
-            Выйти
-          </v-btn>
-        </v-card-actions>
+        <GoogleCalendarConnect
+          :callback-result="route.query.google?.toString()"
+          @skip="closeCalendarDialog"
+        />
       </v-card>
     </v-dialog>
   </ClientOnly>
