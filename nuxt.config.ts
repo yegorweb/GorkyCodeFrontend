@@ -1,6 +1,15 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  ssr: false,
+  compatibilityDate: '2026-10-29',
+
+  routeRules: {
+    '/': {
+      prerender: false,
+      ssr: false,
+    }
+  },
+
+  // ssr: false,
 
   site: {
     indexable: false,

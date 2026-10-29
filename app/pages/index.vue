@@ -37,7 +37,7 @@ if (!calendarStatus.ok) {
     toast.success('Google Calendar подключён')
   }
 
-  // showCalendarDialog.value = googleResult === 'error' || !calendarStatus.data.connected
+  showCalendarDialog.value = googleResult === 'error' || !calendarStatus.data.connected
 }
 
 async function scrollToLatestMessage() {
@@ -96,98 +96,100 @@ async function submitPrompt(submission: PromptSubmission) {
 </script>
 
 <template>
-  <div class="header">
-    <v-container class="header-content d-flex align-center justify-space-between pt-0 pb-0">
-      <div class="d-flex align-center ga-3">
-        <v-avatar class="bg-primary" size="34">
-          <v-icon :icon="mdiAccount" />
-        </v-avatar>
-        <span class="font-weight-medium">{{ auth.user.value.name }}</span>
+  <ClientOnly>
+    <div class="header">
+      <v-container class="header-content d-flex align-center justify-space-between pt-0 pb-0">
+        <div class="d-flex align-center ga-3">
+          <v-avatar class="bg-primary" size="34">
+            <v-icon :icon="mdiAccount" />
+          </v-avatar>
+          <span class="font-weight-medium">{{ auth.user.value.name }}</span>
+          <v-btn
+            :icon="mdiLogout"
+            aria-label="Выйти"
+            variant="text"
+            color="on-surface"
+            size="small"
+            @click="auth.logout"
+          />
+        </div>
         <v-btn
-          :icon="mdiLogout"
-          aria-label="Выйти"
+          :icon="mdiCog"
+          aria-label="Настройки"
           variant="text"
           color="on-surface"
-          size="small"
-          @click="auth.logout"
+          @click="settingsOpen = true"
         />
+      </v-container>
+    </div>
+  
+    <v-container class="chat-shell">
+      <div
+        class="chat-messages"
+        :class="{ 'chat-messages--empty': messages.length === 0 }"
+      >
+        <div v-if="messages.length === 0" class="empty-prompt">
+          Чем могу помочь?
+        </div>
+        <div
+          v-for="message in messages"
+          :key="message.id"
+          class="message-row"
+          :class="[`message-row--${message.role}`, 'can-touch']"
+        >
+          <v-card
+            v-if="message.role === 'user'"
+            class="message-bubble message-bubble--user rounded-lg bg-surface"
+          >
+            <v-card-text class="message-text">{{ message.text }}</v-card-text>
+          </v-card>
+          <div
+            v-else-if="message.role === 'assistant'"
+            class="message-bubble message-bubble--assistant"
+          >
+            {{ message.text }}
+          </div>
+          <div
+            v-else-if="message.role === 'error'"
+            class="message-bubble message-bubble--error rounded-lg"
+          >
+            {{ message.text }}
+          </div>
+          <div v-else class="message-bubble message-bubble--assistant pending-dots">
+            <span>•</span><span>•</span><span>•</span>
+          </div>
+        </div>
       </div>
-      <v-btn
-        :icon="mdiCog"
-        aria-label="Настройки"
-        variant="text"
-        color="on-surface"
-        @click="settingsOpen = true"
+  
+      <PromptPanel
+        v-model:settings-open="settingsOpen"
+        :busy="busy"
+        @submit="submitPrompt"
       />
     </v-container>
-  </div>
-
-  <v-container class="chat-shell">
-    <div
-      class="chat-messages"
-      :class="{ 'chat-messages--empty': messages.length === 0 }"
+  
+    <v-dialog
+      v-model="showCalendarDialog"
+      persistent
+      max-width="360"
     >
-      <div v-if="messages.length === 0" class="empty-prompt">
-        Чем могу помочь?
-      </div>
-      <div
-        v-for="message in messages"
-        :key="message.id"
-        class="message-row"
-        :class="[`message-row--${message.role}`, 'can-touch']"
-      >
-        <v-card
-          v-if="message.role === 'user'"
-          class="message-bubble message-bubble--user rounded-lg bg-surface"
-        >
-          <v-card-text class="message-text">{{ message.text }}</v-card-text>
-        </v-card>
-        <div
-          v-else-if="message.role === 'assistant'"
-          class="message-bubble message-bubble--assistant"
-        >
-          {{ message.text }}
-        </div>
-        <div
-          v-else-if="message.role === 'error'"
-          class="message-bubble message-bubble--error rounded-lg"
-        >
-          {{ message.text }}
-        </div>
-        <div v-else class="message-bubble message-bubble--assistant pending-dots">
-          <span>•</span><span>•</span><span>•</span>
-        </div>
-      </div>
-    </div>
-
-    <PromptPanel
-      v-model:settings-open="settingsOpen"
-      :busy="busy"
-      @submit="submitPrompt"
-    />
-  </v-container>
-
-  <v-dialog
-    v-model="showCalendarDialog"
-    persistent
-    max-width="360"
-  >
-    <v-card class="w-100 rounded-lg bg-surface">
-      <v-card-title class="text-center pt-6">
-        Google Calendar
-      </v-card-title>
-      <GoogleCalendarConnect :callback-result="route.query.google?.toString()" />
-      <v-card-actions class="justify-center pb-5">
-        <v-btn
-          :prepend-icon="mdiLogout"
-          variant="text"
-          @click="auth.logout"
-        >
-          Выйти
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+      <v-card class="w-100 rounded-lg bg-surface">
+        <v-card-title class="text-center pt-6">
+          Google Calendar
+        </v-card-title>
+        <GoogleCalendarConnect :callback-result="route.query.google?.toString()" />
+        <v-card-actions class="justify-center pb-5">
+          <v-btn
+            :prepend-icon="mdiLogout"
+            variant="text"
+            @click="auth.logout"
+          >
+            Выйти
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </ClientOnly>
 </template>
 
 <style lang="postcss" scoped>
