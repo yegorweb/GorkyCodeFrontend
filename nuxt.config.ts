@@ -4,7 +4,6 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/': {
-      prerender: false,
       ssr: false,
     }
   },
