@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiAccount, mdiCalendarMonth, mdiCog, mdiLogout, mdiPlus } from '@mdi/js'
+import { mdiAccount, mdiCalendarMonth, mdiCog, mdiLogout, mdiPlus, mdiSync } from '@mdi/js'
 
 interface ChatMessage {
   id: number
@@ -33,6 +33,7 @@ const queryValue = route.query.google
 const googleResult = Array.isArray(queryValue) ? queryValue[0] : queryValue
 const calendarDeferredKey = 'gorkycode.google-calendar-deferred'
 const calendarStatus = await googleCalendar.getStatus()
+const googleCalendarConnected = ref(calendarStatus.ok && calendarStatus.data.connected)
 
 if (!calendarStatus.ok) {
   toast.error(generateErrorMessage(calendarStatus))
@@ -227,6 +228,16 @@ function closeCalendarDialog() {
               <v-icon :icon="mdiAccount" />
             </v-avatar>
             <span style="line-height: 1.1;" class="font-weight-medium">{{ auth.user.value.name }}</span>
+            <v-btn
+              v-if="!googleCalendarConnected"
+              :icon="mdiSync"
+              aria-label="Подключить Google Calendar"
+              title="Подключить Google Calendar"
+              variant="text"
+              color="on-surface"
+              size="small"
+              @click="showCalendarDialog = true"
+            />
             <v-btn
               :icon="mdiLogout"
               aria-label="Выйти"
