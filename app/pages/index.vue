@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { mdiAccount, mdiCog, mdiLogout } from '@mdi/js'
+import { mdiAccount, mdiCog, mdiLogout, mdiPlus } from '@mdi/js'
 
 interface ChatMessage {
   id: number
   role: 'user' | 'assistant' | 'error' | 'pending'
   text: string
+  response?: TaskResponse
 }
 
 type PromptSubmission =
@@ -58,6 +59,22 @@ async function scrollToLatestMessage() {
   })
 }
 
+function getCandidates(response?: TaskResponse): TaskDeleteCandidate[] | undefined {
+  if (response?.status === 'candidates') return response.data.candidates
+  if (response?.status === 'update_candidates') return response.data.candidates
+  return undefined
+}
+
+function getCollectionItems(response?: TaskResponse): TaskItem[] | undefined {
+  if (!response || response.status !== 'ok' || !('data' in response)) return undefined
+  return 'items' in response.data ? response.data.items : undefined
+}
+
+function formatRecordDetails(item: TaskItem): string {
+  const dateTime = [item.date, item.time].filter(Boolean).join(' · ')
+  return [item.record_type, dateTime, item.status].filter(Boolean).join(' · ')
+}
+
 async function submitPrompt(submission: PromptSubmission) {
   if (busy.value) return
 
@@ -88,6 +105,7 @@ async function submitPrompt(submission: PromptSubmission) {
       id: pendingId,
       role: 'assistant',
       text: result.data.message,
+      response: result.data,
     }
   } else {
     messages.value[pendingIndex] = {
@@ -101,6 +119,14 @@ async function submitPrompt(submission: PromptSubmission) {
   await scrollToLatestMessage()
 }
 
+function startNewChat() {
+  if (busy.value) return
+
+  task.startNewChat()
+  messages.value = []
+  nextMessageId = 0
+}
+
 function closeCalendarDialog() {
   sessionStorage.setItem(calendarDeferredKey, 'true')
   showCalendarDialog.value = false
@@ -109,77 +135,126 @@ function closeCalendarDialog() {
 
 <template>
   <ClientOnly>
-    <div class="header">
-      <v-container class="header-content d-flex align-center justify-space-between pt-0 pb-0">
-        <div class="d-flex align-center ga-3">
-          <v-avatar class="bg-primary" size="34">
-            <v-icon :icon="mdiAccount" />
-          </v-avatar>
-          <span class="font-weight-medium">{{ auth.user.value.name }}</span>
-          <v-btn
-            :icon="mdiLogout"
-            aria-label="Выйти"
-            variant="text"
-            color="on-surface"
-            size="small"
-            @click="auth.logout"
-          />
+    <div class="chat-page">
+      <div class="header">
+        <v-container class="header-content d-flex align-center justify-space-between pt-0 pb-0">
+          <div class="d-flex align-center ga-3">
+            <v-avatar class="bg-primary" size="34">
+              <v-icon :icon="mdiAccount" />
+            </v-avatar>
+            <span class="font-weight-medium">{{ auth.user.value.name }}</span>
+            <v-btn
+              :icon="mdiLogout"
+              aria-label="Выйти"
+              variant="text"
+              color="on-surface"
+              size="small"
+              @click="auth.logout"
+            />
+          </div>
+          <div class="d-flex align-center">
+            <v-btn
+              :icon="mdiPlus"
+              aria-label="Новый чат"
+              title="Новый чат"
+              variant="text"
+              color="on-surface"
+              :disabled="busy"
+              @click="startNewChat"
+            />
+            <v-btn
+              :icon="mdiCog"
+              aria-label="Настройки"
+              variant="text"
+              color="on-surface"
+              @click="settingsOpen = true"
+            />
+          </div>
+        </v-container>
+      </div>
+  
+      <v-container
+        class="chat-shell"
+        :class="{ 'chat-shell--has-messages': messages.length > 0 }"
+      >
+        <div
+          class="chat-messages"
+          :class="{ 'chat-messages--empty': messages.length === 0 }"
+        >
+          <div v-if="messages.length === 0" class="empty-prompt">
+            Чем могу помочь?
+          </div>
+          <div
+            v-for="message in messages"
+            :key="message.id"
+            class="message-row"
+            :class="[`message-row--${message.role}`, 'can-touch']"
+          >
+            <v-card
+              v-if="message.role === 'user'"
+              class="message-bubble message-bubble--user rounded-lg bg-surface"
+            >
+              <v-card-text class="message-text">{{ message.text }}</v-card-text>
+            </v-card>
+            <div
+              v-else-if="message.role === 'assistant'"
+              class="message-bubble message-bubble--assistant"
+            >
+              <div>{{ message.text }}</div>
+              <v-list
+                v-if="getCandidates(message.response)"
+                class="response-list"
+                bg-color="transparent"
+                density="compact"
+              >
+                <v-list-item
+                  v-for="candidate in getCandidates(message.response)"
+                  :key="candidate.number"
+                  :title="`${candidate.number}. ${candidate.event.title}`"
+                  :subtitle="formatRecordDetails(candidate.event)"
+                />
+                <v-list-item
+                  v-if="getCandidates(message.response)?.length === 0"
+                  title="Подходящие записи не найдены"
+                />
+              </v-list>
+              <v-list
+                v-if="getCollectionItems(message.response)"
+                class="response-list"
+                bg-color="transparent"
+                density="compact"
+              >
+                <v-list-item
+                  v-for="item in getCollectionItems(message.response)"
+                  :key="item.id"
+                  :title="item.title"
+                  :subtitle="formatRecordDetails(item)"
+                />
+                <v-list-item
+                  v-if="getCollectionItems(message.response)?.length === 0"
+                  title="Список пуст"
+                />
+              </v-list>
+            </div>
+            <div
+              v-else-if="message.role === 'error'"
+              class="message-bubble message-bubble--error rounded-lg"
+            >
+              {{ message.text }}
+            </div>
+            <div v-else class="message-bubble message-bubble--assistant pending-dots">
+              <span>•</span><span>•</span><span>•</span>
+            </div>
+          </div>
         </div>
-        <v-btn
-          :icon="mdiCog"
-          aria-label="Настройки"
-          variant="text"
-          color="on-surface"
-          @click="settingsOpen = true"
+
+        <PromptPanel
+          v-model:settings-open="settingsOpen"
+          :busy="busy"
+          @submit="submitPrompt"
         />
       </v-container>
     </div>
-  
-    <v-container class="chat-shell">
-      <div
-        class="chat-messages"
-        :class="{ 'chat-messages--empty': messages.length === 0 }"
-      >
-        <div v-if="messages.length === 0" class="empty-prompt">
-          Чем могу помочь?
-        </div>
-        <div
-          v-for="message in messages"
-          :key="message.id"
-          class="message-row"
-          :class="[`message-row--${message.role}`, 'can-touch']"
-        >
-          <v-card
-            v-if="message.role === 'user'"
-            class="message-bubble message-bubble--user rounded-lg bg-surface"
-          >
-            <v-card-text class="message-text">{{ message.text }}</v-card-text>
-          </v-card>
-          <div
-            v-else-if="message.role === 'assistant'"
-            class="message-bubble message-bubble--assistant"
-          >
-            {{ message.text }}
-          </div>
-          <div
-            v-else-if="message.role === 'error'"
-            class="message-bubble message-bubble--error rounded-lg"
-          >
-            {{ message.text }}
-          </div>
-          <div v-else class="message-bubble message-bubble--assistant pending-dots">
-            <span>•</span><span>•</span><span>•</span>
-          </div>
-        </div>
-      </div>
-  
-      <PromptPanel
-        v-model:settings-open="settingsOpen"
-        :busy="busy"
-        @submit="submitPrompt"
-      />
-    </v-container>
-  
     <v-dialog
       v-model="showCalendarDialog"
       max-width="360"
@@ -213,17 +288,33 @@ function closeCalendarDialog() {
   height: 60px;
 }
 
+.chat-page {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+
+.header {
+  flex: 0 0 60px;
+}
+
 .chat-shell {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   min-height: calc(100dvh - 60px);
+  box-sizing: border-box;
   padding-top: 0;
   padding-bottom: 0;
 }
 
+.chat-shell--has-messages {
+  padding-bottom: 190px;
+}
+
 .chat-messages {
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 18px;
   padding: 28px 0 12px;

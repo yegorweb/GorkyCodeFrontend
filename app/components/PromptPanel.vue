@@ -384,7 +384,7 @@ defineExpose({ openSettings })
 </script>
 
 <template>
-  <div class="prompt-panel">
+  <v-container class="prompt-panel">
     <v-alert
       v-if="microphoneError && !settingsOpen"
       type="error"
@@ -530,15 +530,17 @@ defineExpose({ openSettings })
         </v-card>
       </template>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <style scoped>
 .prompt-panel {
-  position: sticky;
+  position: fixed;
+  right: 0;
   bottom: 0;
+  left: 0;
   z-index: 2;
-  padding: 12px 0 max(12px, env(safe-area-inset-bottom));
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   background: linear-gradient(transparent, rgb(var(--v-theme-background)) 22%);
 }
 

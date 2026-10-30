@@ -3,7 +3,10 @@ import type { components } from './backend'
 declare global {
   type TaskTextRequest = components['schemas']['TaskTextRequest']
   type TaskAudioRequest = components['schemas']['TaskAudioRequest']
+  type TaskItem = components['schemas']['TaskItem']
+  type TaskDeleteCandidate = components['schemas']['TaskDeleteCandidate']
   type TaskResponse =
+    | components['schemas']['TaskChatResponse']
     | components['schemas']['TaskClarificationResponse']
     | components['schemas']['TaskCollectionResponse']
     | components['schemas']['TaskCancelledResponse']
@@ -15,4 +18,11 @@ declare global {
   type HealthResponse = components['schemas']['HealthResponse']
 }
 
-export { HealthResponse, TaskAudioRequest, TaskResponse, TaskTextRequest }
+export {
+  HealthResponse,
+  TaskAudioRequest,
+  TaskDeleteCandidate,
+  TaskItem,
+  TaskResponse,
+  TaskTextRequest,
+}

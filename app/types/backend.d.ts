@@ -55,11 +55,28 @@ export interface paths {
          *     передаёт AI-service текст, время запроса, часовой пояс пользователя и
          *     пустой context. Для ответа на уточнение клиент повторяет запрос с
          *     полученным task_id; backend загружает context из Redis.
+         *     Если task_id отсутствует, backend создаёт новый ID диалога. Если
+         *     переданный task_id не найден в Redis, backend создаёт новый ID и
+         *     разбирает текст как начало нового диалога. Короткий период без
+         *     контекста, например «до конца недели», возвращает 200
+         *     needs_clarification с новым task_id и просьбой повторить запрос
+         *     целиком; этот контекст сохраняется для следующей реплики. Ошибки
+         *     Повреждённый context Redis также начинает новый диалог. Если модель
+         *     дважды вернула ответ вне схемы, backend возвращает 200
+         *     needs_clarification без действий над записями. Недоступность AI,
+         *     Redis и базы данных остаётся ошибкой сервиса.
+         *     Запросы о ближайшем времени AI передаёт как list_events с
+         *     upcoming_minutes; backend применяет окно в часовом поясе пользователя.
          *     После успешной операции или поиска кандидатов backend вызывает
          *     POST /api/respond с фактическим data, intent, status, текущим text и
          *     timezone. AI формирует только message; данные и HTTP-статус сохраняются.
          *     При сбое генерации используется резервное сообщение без повтора операции.
-         *     Уточнения и отмена создания встречи не требуют этого вызова.
+         *     Уточнения не требуют этого вызова. Если время новой встречи
+         *     пересекается с существующей или занято в подключённом Google
+         *     Calendar, запись не создаётся: 409 Problem, code=meeting_conflict.
+         *     В ответе также возвращаются user_id и task_id; по этому task_id
+         *     можно указать новое время, потому что черновик встречи сохраняется в Redis.
+         *     Подтверждением обойти конфликт нельзя.
          *     Одновременные запросы с одним user_id и task_id не выполняются:
          *     пока первый обрабатывается, второй получает 409. Клиент ждёт ответ
          *     первого запроса и только затем отправляет следующую реплику.
@@ -274,6 +291,19 @@ export interface components {
              */
             file: string;
         };
+        /** @description Ответ на обычную реплику; задачи и встречи не читаются и не меняются. */
+        TaskChatResponse: {
+            /** Format: uuid */
+            user_id: string;
+            /**
+             * Format: uuid
+             * @description Передайте этот ID для продолжения разговора.
+             */
+            task_id: string;
+            /** @enum {string} */
+            status: "ok";
+            message: string;
+        };
         TaskClarificationResponse: {
             /** Format: uuid */
             user_id: string;
@@ -282,10 +312,7 @@ export interface components {
              * @description Клиент возвращает этот ID в следующем запросе.
              */
             task_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "needs_clarification";
             /** @description Уточняющий вопрос от AI-service. */
             message: string;
@@ -306,10 +333,7 @@ export interface components {
              * @description ID диалога для следующего запроса, не ID строки tasks.
              */
             task_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "candidates";
             /** @description Сообщение backend после фактического поиска. */
             message: string;
@@ -338,10 +362,7 @@ export interface components {
              * @description ID диалога, не ID удалённой строки tasks.
              */
             task_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "deleted";
             /** @description Сообщение backend об успешно удалённых записях. */
             message: string;
@@ -366,23 +387,15 @@ export interface components {
             data: components["schemas"]["TaskCreatedData"];
         };
         /**
-         * @description Ответ на вопрос о конфликте встреч, если пользователь отказался.
-         *     Когда новая встреча пересекается с активной встречей пользователя
-         *     или с занятым временем в подключённом Google Calendar, backend не
-         *     создаёт её сразу, а возвращает 200 TaskClarificationResponse с
-         *     вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
-         *     создаёт встречу (201), «нет» возвращает этот ответ, другой текст
-         *     повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+         * @deprecated
+         * @description Устаревший тип; пересекающаяся встреча теперь возвращает 409.
          */
         TaskCancelledResponse: {
             /** Format: uuid */
             user_id: string;
             /** Format: uuid */
             task_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "cancelled";
             message: string;
         };
@@ -424,10 +437,7 @@ export interface components {
              * @description ID обработки запроса; новую запись tasks не обозначает.
              */
             task_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "ok";
             /**
              * @description Сообщение POST /api/respond по data.items, либо резервный текст
@@ -443,7 +453,8 @@ export interface components {
          *     агрегатор формирует обёртку ответа фронтенду и передаёт message от
          *     POST /api/respond; при ошибке генерации используется резервное сообщение.
          *     Если записей нет, items — пустой массив. Оба сервиса учитывают
-         *     записи со статусами active и completed. Задача без точного времени
+         *     задачи со статусами active, in_progress и completed; встречи и
+         *     напоминания со статусами active и completed. Задача без точного времени
          *     участвует в выборке по дате; отсутствие времени не заменяется
          *     фиктивным часом.
          * @example {
@@ -467,7 +478,8 @@ export interface components {
         /**
          * @description Представление записи tasks для клиента. Значения record_type на API
          *     совпадают с AI-контрактом и со значениями колонки tasks.type
-         *     в PostgreSQL (meeting, task, reminder).
+         *     в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+         *     только для task; meeting и reminder сохраняют active/completed.
          */
         TaskItem: {
             /** Format: uuid */
@@ -486,15 +498,21 @@ export interface components {
             time?: string | null;
             /** Format: date-time */
             created_at: string;
-            /** @enum {string} */
-            status: "active" | "completed";
+            /**
+             * @description in_progress допустим только для record_type=task.
+             * @enum {string}
+             */
+            status: "active" | "in_progress" | "completed";
         };
         /** Format: uuid */
         UUID: string;
         /** @enum {string} */
         RecordType: "task" | "reminder" | "meeting";
-        /** @enum {string} */
-        TaskStatus: "active" | "completed";
+        /**
+         * @description in_progress допустим только для record_type=task.
+         * @enum {string}
+         */
+        TaskStatus: "active" | "in_progress" | "completed";
         /** Format: date */
         Date: string;
         LocalTime: string;
@@ -506,7 +524,8 @@ export interface components {
          *     неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
          *     неизменяемы. Если time задано для записи без date, changes обязано
          *     задать date. Дату без времени и время без даты можно сохранять только
-         *     если итоговая строка удовлетворяет ограничению БД.
+         *     если итоговая строка удовлетворяет ограничению БД. status=in_progress
+         *     разрешён только для задач; встречи и напоминания остаются active/completed.
          */
         UpdateChanges: {
             /** @description После trim строка должна быть непустой. */
@@ -525,10 +544,7 @@ export interface components {
         FrontendUpdateCandidates: {
             user_id: components["schemas"]["UUID"];
             task_id: components["schemas"]["UUID"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "update_candidates";
             message: string;
             data: {
@@ -548,10 +564,7 @@ export interface components {
         FrontendUpdated: {
             user_id: components["schemas"]["UUID"];
             task_id: components["schemas"]["UUID"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
+            /** @enum {string} */
             status: "updated";
             message: string;
             data: {
@@ -651,6 +664,16 @@ export interface components {
             detail?: string;
             instance?: string;
             code: string;
+            /**
+             * Format: uuid
+             * @description Передаётся при code=meeting_conflict.
+             */
+            user_id?: string;
+            /**
+             * Format: uuid
+             * @description ID диалога; передаётся при code=meeting_conflict.
+             */
+            task_id?: string;
         };
     };
     responses: {
@@ -907,18 +930,20 @@ export interface operations {
              *     список для выбора, в том числе пустой; status=deleted подтверждает
              *     фактическое удаление всех выбранных записей. Для on_update
              *     status=update_candidates возвращает список и предлагаемые changes,
-             *     status=updated — обновлённые записи. После получения результата
-             *     backend запрашивает message через AI POST /api/respond.
+             *     status=updated — обновлённые записи. Для X-Task-Intent=chat
+             *     возвращается status=ok и message без обращения к БД. После
+             *     выполнения действий над записями backend запрашивает message
+             *     через AI POST /api/respond.
              *     При сбое генерации используется резервное сообщение.
              */
             200: {
                 headers: {
                     /** @description Проверенный intent; при уточнении — намерение диалога. */
-                    "X-Task-Intent": "create_event" | "list_events" | "search_events" | "on_delete" | "on_update";
+                    "X-Task-Intent": "create_event" | "list_events" | "search_events" | "on_delete" | "on_update" | "chat";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaskClarificationResponse"] | components["schemas"]["TaskCollectionResponse"] | components["schemas"]["TaskCancelledResponse"] | components["schemas"]["TaskDeleteCandidatesResponse"] | components["schemas"]["TasksDeletedResponse"] | components["schemas"]["FrontendUpdateCandidates"] | components["schemas"]["FrontendUpdated"];
+                    "application/json": components["schemas"]["TaskClarificationResponse"] | components["schemas"]["TaskCollectionResponse"] | components["schemas"]["TaskChatResponse"] | components["schemas"]["TaskDeleteCandidatesResponse"] | components["schemas"]["TasksDeletedResponse"] | components["schemas"]["FrontendUpdateCandidates"] | components["schemas"]["FrontendUpdated"];
                 };
             };
             /**
@@ -940,7 +965,15 @@ export interface operations {
             401: components["responses"]["SessionRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
+            /** @description Занятое время встречи, занятый диалог или устаревший выбор. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             413: components["responses"]["PayloadTooLarge"];
             500: components["responses"]["TaskInternalError"];
             502: components["responses"]["BadGateway"];

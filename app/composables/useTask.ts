@@ -4,17 +4,16 @@ export const useTask = () => {
   const activeTaskId = useState<string | null>('active-task-id', () => null)
 
   function updateTaskContext(response: TaskResponse) {
-    const status: string = response.status
-    if (status === 'ok') {
-      activeTaskId.value = null
-    } else if (
-      status === 'needs_clarification'
-      || status === 'need_clarification'
-      || status === 'candidates'
-      || status === 'update_candidates'
-    ) {
-      activeTaskId.value = response.task_id
-    }
+    const taskId = response && typeof response === 'object' && 'task_id' in response
+      ? response.task_id
+      : null
+    activeTaskId.value = typeof taskId === 'string' && taskId.length > 0
+      ? taskId
+      : null
+  }
+
+  function startNewChat() {
+    activeTaskId.value = null
   }
 
   async function processText(text: string): Promise<StoreResponse<TaskResponse>> {
@@ -49,6 +48,7 @@ export const useTask = () => {
   return {
     processText,
     processAudio,
+    startNewChat,
     activeTaskId,
   }
 }
