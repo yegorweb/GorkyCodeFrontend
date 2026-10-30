@@ -45,9 +45,16 @@ export const useTask = () => {
     return result
   }
 
+  async function listTasks(filters: TasksListFilters = {}): Promise<StoreResponse<TasksListResponse>> {
+    return $apiFetchSafe<TasksListResponse>('/api/v1/tasks', {
+      query: filters,
+    })
+  }
+
   return {
     processText,
     processAudio,
+    listTasks,
     startNewChat,
     activeTaskId,
   }

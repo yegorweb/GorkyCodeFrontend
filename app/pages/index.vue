@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { mdiAccount, mdiCog, mdiLogout, mdiPlus } from '@mdi/js'
+import { mdiAccount, mdiCalendarMonth, mdiCog, mdiLogout, mdiPlus } from '@mdi/js'
 
 interface ChatMessage {
   id: number
-  role: 'user' | 'assistant' | 'error' | 'pending'
+  role: 'user' | 'assistant' | 'error' | 'pending' | 'notification'
   text: string
   response?: TaskResponse
+  notification?: CalendarNotification
 }
 
 type PromptSubmission =
@@ -23,6 +24,7 @@ const toast = useToast()
 const task = useTask()
 const showCalendarDialog = ref(false)
 const settingsOpen = ref(false)
+const tasksDialogOpen = ref(false)
 const messages = ref<ChatMessage[]>([])
 const busy = ref(false)
 let nextMessageId = 0
@@ -73,6 +75,88 @@ function getCollectionItems(response?: TaskResponse): TaskItem[] | undefined {
 function formatRecordDetails(item: TaskItem): string {
   const dateTime = [item.date, item.time].filter(Boolean).join(' · ')
   return [item.record_type, dateTime, item.status].filter(Boolean).join(' · ')
+}
+
+function formatTaskList(items: TaskItem[]): string {
+  if (items.length === 0) return 'По выбранным фильтрам ничего не нашёл.'
+
+  const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+
+  const lines = items.map((item, index) => {
+    const date = item.date
+      ? dateFormatter.format(new Date(`${item.date}T00:00:00`))
+      : ''
+    const dateTime = [date, item.time].filter(Boolean).join(', ')
+    const status = item.record_type === 'meeting'
+      ? item.status === 'completed' ? 'состоялась' : 'запланирована'
+      : item.record_type === 'reminder'
+        ? item.status === 'completed' ? 'выполнено' : 'активно'
+        : item.status === 'completed'
+          ? 'выполнена'
+          : item.status === 'in_progress'
+            ? 'в работе'
+            : 'активна'
+    const details = [dateTime, status].filter(Boolean).join(' · ')
+
+    return `${index + 1}. ${item.title}${details ? ` — ${details}` : ''}.`
+  })
+
+  return `Вот что нашёл:\n\n${lines.join('\n')}`
+}
+
+async function showNotification(notification: CalendarNotification) {
+  messages.value.push({
+    id: nextMessageId++,
+    role: 'notification',
+    text: notification.message,
+    notification,
+  })
+  await scrollToLatestMessage()
+}
+
+function showNotificationError(message: string) {
+  messages.value.push({
+    id: nextMessageId++,
+    role: 'error',
+    text: message,
+  })
+  void scrollToLatestMessage()
+}
+
+useNotifications(showNotification, showNotificationError)
+
+async function loadTasks(filters: TasksListFilters) {
+  tasksDialogOpen.value = false
+  const pendingId = nextMessageId++
+  messages.value.push({
+    id: pendingId,
+    role: 'pending',
+    text: '',
+  })
+  await scrollToLatestMessage()
+
+  const result = await task.listTasks(filters)
+  const pendingIndex = messages.value.findIndex(message => message.id === pendingId)
+
+  if (result.ok) {
+    messages.value[pendingIndex] = {
+      id: pendingId,
+      role: 'assistant',
+      text: formatTaskList(result.data.data.items),
+    }
+  } else {
+    messages.value[pendingIndex] = {
+      id: pendingId,
+      role: 'error',
+      text: generateErrorMessage(result),
+    }
+  }
+
+  await scrollToLatestMessage()
 }
 
 async function submitPrompt(submission: PromptSubmission) {
@@ -163,6 +247,14 @@ function closeCalendarDialog() {
               @click="startNewChat"
             />
             <v-btn
+              :icon="mdiCalendarMonth"
+              aria-label="Мои события"
+              title="Мои события"
+              variant="text"
+              color="on-surface"
+              @click="tasksDialogOpen = true"
+            />
+            <v-btn
               :icon="mdiCog"
               aria-label="Настройки"
               variant="text"
@@ -242,6 +334,15 @@ function closeCalendarDialog() {
             >
               {{ message.text }}
             </div>
+            <v-card
+              v-else-if="message.role === 'notification'"
+              class="message-bubble notification-card rounded-lg bg-surface"
+            >
+              <v-card-title class="text-body-1 font-weight-medium">
+                {{ message.notification?.title }}
+              </v-card-title>
+              <v-card-text>{{ message.text }}</v-card-text>
+            </v-card>
             <div v-else class="message-bubble message-bubble--assistant pending-dots">
               <span>•</span><span>•</span><span>•</span>
             </div>
@@ -255,6 +356,10 @@ function closeCalendarDialog() {
         />
       </v-container>
     </div>
+    <TasksFilterDialog
+      v-model="tasksDialogOpen"
+      @submit="loadTasks"
+    />
     <v-dialog
       v-model="showCalendarDialog"
       max-width="360"
@@ -342,7 +447,8 @@ function closeCalendarDialog() {
 
 .message-row--assistant,
 .message-row--error,
-.message-row--pending {
+.message-row--pending,
+.message-row--notification {
   justify-content: flex-start;
 }
 
@@ -369,6 +475,20 @@ function closeCalendarDialog() {
   padding: 12px 16px;
   color: rgb(var(--v-theme-error));
   background: rgba(var(--v-theme-error), 0.12);
+}
+
+.notification-card {
+  animation: notification-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes notification-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(var(--v-theme-primary), 0.1);
+  }
+
+  50% {
+    box-shadow: 0 0 18px rgba(var(--v-theme-primary), 0.45);
+  }
 }
 
 .pending-dots {

@@ -626,7 +626,7 @@ defineExpose({ openSettings })
 }
 
 .microphone-settings {
-  padding: 10px 18px 18px;
+  padding: 10px 18px 18px 18px;
 }
 
 .microphone-meter {
