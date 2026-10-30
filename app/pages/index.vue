@@ -237,7 +237,7 @@ function closeCalendarDialog() {
             />
           </div>
           <div class="d-flex align-center">
-            <v-btn
+            <!-- <v-btn
               :icon="mdiPlus"
               aria-label="Новый чат"
               title="Новый чат"
@@ -245,7 +245,7 @@ function closeCalendarDialog() {
               color="on-surface"
               :disabled="busy"
               @click="startNewChat"
-            />
+            /> -->
             <v-btn
               :icon="mdiCalendarMonth"
               aria-label="Мои события"
