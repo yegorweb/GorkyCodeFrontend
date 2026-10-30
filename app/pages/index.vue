@@ -226,7 +226,7 @@ function closeCalendarDialog() {
             <v-avatar class="bg-primary" size="34">
               <v-icon :icon="mdiAccount" />
             </v-avatar>
-            <span class="font-weight-medium">{{ auth.user.value.name }}</span>
+            <span style="line-height: 1.1;" class="font-weight-medium">{{ auth.user.value.name }}</span>
             <v-btn
               :icon="mdiLogout"
               aria-label="Выйти"
