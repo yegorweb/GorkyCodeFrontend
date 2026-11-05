@@ -89,37 +89,36 @@ function getCollectionItems(response?: TaskResponse): TaskItem[] | undefined {
   return response.data.items
 }
 
-function formatRecordDetails(item: TaskItem): string {
-  const dateTime = [item.date, item.time].filter(Boolean).join(' · ')
-  return [item.record_type, dateTime, item.status].filter(Boolean).join(' · ')
+const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+
+function formatTaskItem(item: TaskItem): string {
+  const date = item.date
+    ? dateFormatter.format(new Date(`${item.date}T00:00:00`))
+    : ''
+  const dateTime = [date, item.time].filter(Boolean).join(', ')
+  const status = item.record_type === 'meeting'
+    ? item.status === 'completed' ? 'состоялась' : 'запланирована'
+    : item.record_type === 'reminder'
+      ? item.status === 'completed' ? 'выполнено' : 'активно'
+      : item.status === 'completed'
+        ? 'выполнена'
+        : item.status === 'in_progress'
+          ? 'в работе'
+          : 'активна'
+  const details = [dateTime, status].filter(Boolean).join(' · ')
+
+  return `${item.title}${details ? ` — ${details}` : ''}.`
 }
 
 function formatTaskList(items: TaskItem[]): string {
   if (items.length === 0) return 'По выбранным фильтрам ничего не нашёл.'
 
-  const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-
   const lines = items.map((item, index) => {
-    const date = item.date
-      ? dateFormatter.format(new Date(`${item.date}T00:00:00`))
-      : ''
-    const dateTime = [date, item.time].filter(Boolean).join(', ')
-    const status = item.record_type === 'meeting'
-      ? item.status === 'completed' ? 'состоялась' : 'запланирована'
-      : item.record_type === 'reminder'
-        ? item.status === 'completed' ? 'выполнено' : 'активно'
-        : item.status === 'completed'
-          ? 'выполнена'
-          : item.status === 'in_progress'
-            ? 'в работе'
-            : 'активна'
-    const details = [dateTime, status].filter(Boolean).join(' · ')
-
-    return `${index + 1}. ${item.title}${details ? ` — ${details}` : ''}.`
+    return `${index + 1}. ${formatTaskItem(item)}`
   })
 
   return `Вот что нашёл:\n\n${lines.join('\n')}`
@@ -329,8 +328,7 @@ function closeCalendarDialog() {
                 <v-list-item
                   v-for="candidate in getCandidates(message.response)"
                   :key="candidate.number"
-                  :title="`${candidate.number}. ${candidate.event.title}`"
-                  :subtitle="formatRecordDetails(candidate.event)"
+                  :title="`${candidate.number}. ${formatTaskItem(candidate.event)}`"
                 />
                 <v-list-item
                   v-if="getCandidates(message.response)?.length === 0"
@@ -346,8 +344,7 @@ function closeCalendarDialog() {
                 <v-list-item
                   v-for="item in getCollectionItems(message.response)"
                   :key="item.id"
-                  :title="item.title"
-                  :subtitle="formatRecordDetails(item)"
+                  :title="formatTaskItem(item)"
                 />
               </v-list>
             </div>
