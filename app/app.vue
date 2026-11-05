@@ -1,4 +1,25 @@
 <script setup lang="ts">
+import { useTheme } from 'vuetify'
+
+const theme = useTheme()
+const themeStorageKey = 'gorkycode.theme'
+
+onMounted(() => {
+  const savedTheme = localStorage.getItem(themeStorageKey)
+
+  if (savedTheme === 'light' || savedTheme === 'dark') {
+    void theme.change(savedTheme)
+  } else {
+    localStorage.setItem(themeStorageKey, theme.global.name.value)
+  }
+})
+
+watch(theme.global.name, (name) => {
+  if (name === 'light' || name === 'dark') {
+    localStorage.setItem(themeStorageKey, name)
+  }
+})
+
 useHead({
   titleTemplate: title => title
     ? `${title} | GorkyCode`

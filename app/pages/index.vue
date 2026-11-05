@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { mdiAccount, mdiCalendarMonth, mdiCog, mdiLogout, mdiPlus, mdiSync } from '@mdi/js'
+import {
+  mdiAccount,
+  mdiCalendarMonth,
+  mdiCog,
+  mdiLogout,
+  mdiPlus,
+  mdiSync,
+} from '@mdi/js'
 
 interface ChatMessage {
   id: number

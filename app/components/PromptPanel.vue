@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { mdiClose, mdiDelete, mdiMicrophone, mdiSend } from '@mdi/js'
+import { useTheme } from 'vuetify'
 
 type PromptSubmission =
   | { type: 'text'; text: string }
@@ -12,6 +13,17 @@ const emit = defineEmits<{
   submit: [submission: PromptSubmission]
 }>()
 const settingsOpen = defineModel<boolean>('settingsOpen', { default: false })
+const theme = useTheme()
+const selectedTheme = computed({
+  get: () => theme.global.name.value,
+  set: (value: string) => {
+    void theme.change(value)
+  },
+})
+const themeOptions = [
+  { title: 'Тёмная', value: 'dark' },
+  { title: 'Светлая', value: 'light' },
+]
 
 interface MicrophoneOption {
   title: string
@@ -483,6 +495,16 @@ defineExpose({ openSettings })
               @click="isActive.value = false"
             />
           </div>
+
+          <v-select
+            v-model="selectedTheme"
+            :items="themeOptions"
+            label="Тема оформления"
+            variant="outlined"
+            density="comfortable"
+            class="mb-4"
+            hide-details
+          />
 
           <v-select
             v-model="selectedDeviceId"

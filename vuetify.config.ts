@@ -21,7 +21,19 @@ export default defineVuetifyConfiguration({
           'on-surface': '#ffffff',
           'on-surface-variant': '#ffffff',
         },
-      }
+      },
+      light: {
+        dark: false,
+        colors: {
+          background: '#f6f7f3',
+          surface: '#ffffff',
+          primary: '#008516',
+          secondary: '#4a7fe6',
+          'on-background': '#171a11',
+          'on-surface': '#171a11',
+          'on-surface-variant': '#454a40',
+        },
+      },
     }
   },
   defaults: {
