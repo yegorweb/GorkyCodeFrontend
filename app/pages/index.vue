@@ -223,11 +223,11 @@ function closeCalendarDialog() {
     <div class="chat-page">
       <div class="header">
         <v-container class="header-content d-flex align-center justify-space-between pt-0 pb-0">
-          <div class="d-flex align-center ga-3">
+          <div class="d-flex align-center">
             <v-avatar class="bg-primary" size="34">
               <v-icon :icon="mdiAccount" />
             </v-avatar>
-            <span style="line-height: 1.1;" class="font-weight-medium">{{ auth.user.value.name }}</span>
+            <span style="line-height: 1.1;" class="font-weight-medium ml-3 mr-3">{{ auth.user.value.name }}</span>
             <v-btn
               v-if="!googleCalendarConnected"
               :icon="mdiSync"
