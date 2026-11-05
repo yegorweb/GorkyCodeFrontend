@@ -76,8 +76,17 @@ function getCandidates(response?: TaskResponse): TaskDeleteCandidate[] | undefin
 }
 
 function getCollectionItems(response?: TaskResponse): TaskItem[] | undefined {
-  if (!response || response.status !== 'ok' || !('data' in response)) return undefined
-  return 'items' in response.data ? response.data.items : undefined
+  if (
+    !response
+    || response.status !== 'ok'
+    || !('data' in response)
+    || !('items' in response.data)
+    || !Array.isArray(response.data.items)
+  ) {
+    return undefined
+  }
+
+  return response.data.items
 }
 
 function formatRecordDetails(item: TaskItem): string {
@@ -339,10 +348,6 @@ function closeCalendarDialog() {
                   :key="item.id"
                   :title="item.title"
                   :subtitle="formatRecordDetails(item)"
-                />
-                <v-list-item
-                  v-if="getCollectionItems(message.response)?.length === 0"
-                  title="Список пуст"
                 />
               </v-list>
             </div>
