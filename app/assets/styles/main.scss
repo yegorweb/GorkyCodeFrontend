@@ -5,7 +5,7 @@
 html {
   overflow-y: scroll !important;
   overflow-x: hidden;
-  scrollbar-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, white) rgb(var(--v-theme-background));
+  scrollbar-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, rgb(var(--v-theme-on-background))) rgb(var(--v-theme-background));
 }
 
 html::-webkit-scrollbar-track {
@@ -13,7 +13,11 @@ html::-webkit-scrollbar-track {
 }
 
 html::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, white);
+  background-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, rgb(var(--v-theme-on-background)));
+}
+
+html::-webkit-scrollbar-button {
+  background-color: color-mix(in srgb, rgb(var(--v-theme-background)) 65%, rgb(var(--v-theme-on-background)));
 }
 
 .user-select-none {

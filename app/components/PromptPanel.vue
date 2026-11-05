@@ -601,7 +601,7 @@ defineExpose({ openSettings })
 .prompt-input :deep(textarea) {
   -webkit-user-select: text;
   user-select: text;
-  scrollbar-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 65%, white) rgb(var(--v-theme-surface));
+  scrollbar-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 65%, rgb(var(--v-theme-on-surface))) rgb(var(--v-theme-surface));
 }
 
 .prompt-input :deep(textarea::-webkit-scrollbar-track) {
@@ -609,7 +609,11 @@ defineExpose({ openSettings })
 }
 
 .prompt-input :deep(textarea::-webkit-scrollbar-thumb) {
-  background-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 65%, white);
+  background-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 65%, rgb(var(--v-theme-on-surface)));
+}
+
+.prompt-input :deep(textarea::-webkit-scrollbar-button) {
+  background-color: color-mix(in srgb, rgb(var(--v-theme-surface)) 65%, rgb(var(--v-theme-on-surface)));
 }
 
 .prompt-action {
